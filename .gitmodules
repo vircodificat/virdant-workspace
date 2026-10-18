@@ -1,0 +1,6 @@
+[submodule "virdant"]
+	path = virdant
+	url = git@github.com:virdant-lang/virdant.git
+[submodule "virdant-riscv"]
+	path = virdant-riscv
+	url = git@github.com:vircodificat/virdant-riscv.git
