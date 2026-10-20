@@ -1,6 +1,7 @@
 # Platforms
 
 Date: 2026-10-04
+Status: Completed
 
 An in-language platform binding system for Virdant.
 A top module declares which FPGA platform it implements using a `for` clause (`mod Top for ice40::IceSugar`),

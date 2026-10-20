@@ -1,6 +1,7 @@
 # Tristate and Bidirectional Ports
 
 Date: 2026-10-17
+Status: In Planning
 
 Adds bidirectional `bus` ports, `net` declarations (multiply-driven signals),
 and tristate buffer primitives to Virdant,
