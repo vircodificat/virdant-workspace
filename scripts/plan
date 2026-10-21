@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Create a new plan scaffold under plan/."""
+
+import sys
+from datetime import date
+from pathlib import Path
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <plan-name>", file=sys.stderr)
+        sys.exit(1)
+
+    name = sys.argv[1]
+    plan_dir = Path("plan") / name
+
+    try:
+        plan_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"Plan directory already exists: {plan_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    today = date.today().isoformat()  # YYYY-MM-DD
+
+    # README.md
+    readme = plan_dir / "README.md"
+    readme.write_text(
+        f"# Plan: {name}\n\n"
+        f"Date:   {today}\n"
+        f"Status: In Planning\n"
+    )
+
+    # CONCEPT.md
+    concept = plan_dir / "CONCEPT.md"
+    concept.write_text(
+        f"# Concept: {name}\n\n"
+        f"_Describe the core idea, goals, and motivation here._\n"
+    )
+
+    print(f"Created plan at {plan_dir}/")
+
+
+if __name__ == "__main__":
+    main()
