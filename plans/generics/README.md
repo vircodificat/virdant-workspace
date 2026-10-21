@@ -1,7 +1,7 @@
 # Generics
 
 Date: 2026-10-20
-Status: In Planning
+Status: Completed
 
 Full generics for Virdant: parameterized socket defs, type defs
 (structs/enums/unions), and mod defs, with a single substitution core
