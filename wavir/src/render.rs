@@ -534,25 +534,13 @@ fn draw_bus(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
             _ => false,
         }
     };
-    let label_at = |idx: Option<usize>| -> Option<String> {
-        let i = idx?;
-        match series.events[i].kind {
-            b'0' => Some("0".into()),
-            b'1' => Some("1".into()),
-            b'x' => Some("xxxx".into()),
-            b'z' => Some("zzzz".into()),
-            b'v' => series
-                .values
-                .get(i)
-                .filter(|v| !v.is_empty())
-                .map(|bits| bus::format_bits(bits, series.range)),
-            _ => None,
-        }
-    };
-    let draw_band = |svg: &mut Svg, x0: f64, x1: f64, idx: Option<usize>, kind: u8| {
+
+    let mut drawn: Vec<(f64, f64, Option<usize>, u8)> = Vec::new();
+    let mut draw_band = |svg: &mut Svg, x0: f64, x1: f64, idx: Option<usize>, kind: u8| {
         if x1 <= x0 {
             return;
         }
+        drawn.push((x0, x1, idx, kind));
         let style = bus::style_for(kind);
         let fill = style.fill_override.unwrap_or(theme.bus_fill);
         // x/z bands collapse toward their level line
@@ -590,14 +578,6 @@ fn draw_bus(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
                     ("rx", "2.5".into()),
                 ],
             );
-        }
-        if ctx.opts.bus_labels {
-            if let Some(label) = label_at(idx) {
-                let cx = (x0 + x1) / 2.0;
-                if x1 - x0 >= 34.0 && cx > layout.wave_x0 && cx < layout.wave_x1 {
-                    svg.text(cx, cy, &label, 10.5, theme.bus_text, "middle");
-                }
-            }
         }
     };
     let draw_xmark = |svg: &mut Svg, x: f64| {
@@ -685,6 +665,19 @@ fn draw_bus(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
         layout.wave_x1,
         cur_idx,
         value_at(cur_idx).unwrap_or(b'x'),
+    );
+
+    bus::annotate(
+        svg,
+        &bus::Annotate {
+            segments: &drawn,
+            series,
+            theme,
+            opts: ctx.opts,
+            cy,
+            wave_x0: layout.wave_x0,
+            wave_x1: layout.wave_x1,
+        },
     );
 }
 

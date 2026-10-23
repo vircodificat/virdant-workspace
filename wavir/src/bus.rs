@@ -3,6 +3,9 @@
 //! Base implementation: simple but presentable. The bus-label and X/Z
 //! feature modules refine these functions.
 
+use crate::svg::Svg;
+use crate::types::Series;
+
 
 /// How to draw one waveform segment.
 #[derive(Debug, Clone, Copy)]
@@ -107,4 +110,44 @@ fn hex_val_prefix(_bits: &[u8], _range: Option<(i32, i32)>) -> u32 {
 /// Extra SVG <defs> content (e.g. hatch patterns for X/Z fills).
 pub fn svg_defs(_theme: &crate::theme::Theme) -> String {
     String::new()
+}
+
+/// Context for drawing bus value labels over already-drawn segments.
+pub struct Annotate<'a> {
+    /// (x0, x1, event index into Series::events, kind) per visible segment.
+    pub segments: &'a [(f64, f64, Option<usize>, u8)],
+    pub series: &'a Series,
+    pub theme: &'a crate::theme::Theme,
+    pub opts: &'a crate::cli::Opts,
+    /// Vertical center of the row.
+    pub cy: f64,
+    pub wave_x0: f64,
+    pub wave_x1: f64,
+}
+
+/// Draw bus value labels. Base: centered when the text fits.
+pub fn annotate(svg: &mut Svg, a: &Annotate) {
+    if !a.opts.bus_labels {
+        return;
+    }
+    for (x0, x1, ev_idx, kind) in a.segments {
+        let label = match *kind {
+            b'0' => Some("0".to_string()),
+            b'1' => Some("1".to_string()),
+            b'x' => Some("xxxx".to_string()),
+            b'z' => Some("zzzz".to_string()),
+            b'v' => ev_idx
+                .and_then(|i| a.series.values.get(i))
+                .filter(|v| !v.is_empty())
+                .map(|bits| format_bits(bits, a.series.range)),
+            _ => None,
+        };
+        if let Some(label) = label {
+            let cx = (x0 + x1) / 2.0;
+            let fits = x1 - x0 >= label.chars().count() as f64 * 6.6 + 10.0;
+            if fits && cx > a.wave_x0 && cx < a.wave_x1 {
+                svg.text(cx, a.cy, &label, 10.5, a.theme.bus_text, "middle");
+            }
+        }
+    }
 }
