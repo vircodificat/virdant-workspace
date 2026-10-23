@@ -361,7 +361,9 @@ fn draw_wave(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
     let hi = cy - layout.row_h as f64 * 0.30;
     let lo = cy + layout.row_h as f64 * 0.30;
 
-    // Level in effect at the window start.
+    // Level in effect at the window start. With no event preceding the
+    // window, the trace is undriven (x) — matching bus rows and the HTML
+    // viewer's readout.
     let initial = {
         let pos = series
             .events
@@ -371,7 +373,7 @@ fn draw_wave(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
         if pos > 0 {
             series.events[pos - 1].kind
         } else {
-            series.events[0].kind
+            b'x'
         }
     };
 
@@ -581,7 +583,9 @@ fn draw_bus(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
         }
     };
     let draw_xmark = |svg: &mut Svg, x: f64| {
-        if x < layout.wave_x0 || x > layout.wave_x1 {
+        // strict: an edge exactly at a window boundary carries no marker
+        // (matches bus.rs annotate's margin assumptions)
+        if x <= layout.wave_x0 || x >= layout.wave_x1 {
             return;
         }
         svg.open(

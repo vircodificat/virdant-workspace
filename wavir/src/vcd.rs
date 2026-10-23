@@ -203,7 +203,7 @@ pub fn parse(path: &str) -> Result<Vcd, ParseError> {
         if in_defs {
             if bytes[0] == b'$' {
                 // $keyword ... $end
-                let (kw, rest) = split_kw(bytes);
+                let (kw, rest, ended_inline) = split_kw(bytes);
                 match kw {
                     b"$date" => {
                         header.date = if rest.is_empty() {
@@ -247,8 +247,11 @@ pub fn parse(path: &str) -> Result<Vcd, ParseError> {
                         scope_path.push(name);
                     }
                     b"$upscope" => {
-                        stack.pop();
-                        scope_path.pop();
+                        // tolerate malformed dumps with unbalanced $upscope
+                        if stack.len() > 1 {
+                            stack.pop();
+                            scope_path.pop();
+                        }
                     }
                     b"$var" => {
                         let sig = parse_var(rest, &scope_path);
@@ -270,8 +273,8 @@ pub fn parse(path: &str) -> Result<Vcd, ParseError> {
                     b"$enddefinitions" => in_defs = false,
                     _ => {} // ignore $comment etc. (multi-line comments skipped below)
                 }
-                if kw == b"$comment" {
-                    // skip until $end on its own
+                if kw == b"$comment" && !ended_inline {
+                    // multi-line comment: skip until $end on its own
                     loop {
                         line.clear();
                         if read_line(&mut reader, &mut line) == 0 {
@@ -403,18 +406,21 @@ fn trim(b: &mut &[u8]) {
     }
 }
 
-/// Split `$keyword rest...$end` -> (keyword, rest-without-$end)
-fn split_kw(b: &[u8]) -> (&[u8], &[u8]) {
+/// Split `$keyword rest...$end` -> (keyword, rest-without-$end, ended_inline)
+/// where `ended_inline` is true when a trailing `$end` was stripped.
+fn split_kw(b: &[u8]) -> (&[u8], &[u8], bool) {
     let end = b.iter().position(|&c| c == b' ').unwrap_or(b.len());
     let kw = &b[..end];
     let mut rest = &b[end..];
     trim(&mut rest);
     // strip trailing $end if present on same line
+    let mut ended_inline = false;
     if rest.ends_with(b"$end") {
         rest = &rest[..rest.len() - 4];
         trim(&mut rest);
+        ended_inline = true;
     }
-    (kw, rest)
+    (kw, rest, ended_inline)
 }
 
 /// For multi-line keywords ($date, $version): read lines until $end.

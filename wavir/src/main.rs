@@ -58,7 +58,20 @@ fn main() -> ExitCode {
 }
 
 fn default_output(opts: &cli::Opts) -> String {
-    let stem = opts.input.rsplit_once('.').map(|(s, _)| s).unwrap_or(&opts.input);
+    // Split off the extension on the file name only, never on directory
+    // components (so `/a.b/trace` -> `/a.b/trace.svg`).
     let ext = if opts.html { "html" } else { "svg" };
-    format!("{}.{}", stem, ext)
+    let (dir, file) = match opts.input.rsplit_once('/') {
+        Some((d, f)) => (d, f),
+        None => ("", opts.input.as_str()),
+    };
+    let stem = match file.rsplit_once('.') {
+        Some((s, _)) if !s.is_empty() => s.to_string(),
+        _ => file.to_string(),
+    };
+    if dir.is_empty() {
+        format!("{}.{}", stem, ext)
+    } else {
+        format!("{}/{}.{}", dir, stem, ext)
+    }
 }

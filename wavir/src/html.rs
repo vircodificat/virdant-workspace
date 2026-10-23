@@ -159,13 +159,14 @@ function update(ev){
     band.setAttribute("visibility","visible");
   }else{band.setAttribute("visibility","hidden");}
   /* readout */
+  var esc=function(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");};
   var html="<tr><td>time</td><td class=v>"+fmtSecs(t)+"</td></tr>";
   for(var i=0;i<D.rows.length;i++){
     var r=D.rows[i];
     if(r.k==="group")continue;
     var v=valAt(D.series[r.s],t);
-    html+="<tr"+(i===ri?" class=hov":"")+"><td class=n>"+r.n+"</td><td class=v>"+
-      (v===null||v===undefined?"—":v)+"</td></tr>";
+    html+="<tr"+(i===ri?" class=hov":"")+"><td class=n>"+esc(r.n)+"</td><td class=v>"+
+      (v===null||v===undefined?"—":esc(v))+"</td></tr>";
   }
   panelTitle.textContent="t = "+fmtSecs(t);
   panelTable.innerHTML=html;
@@ -312,7 +313,14 @@ fn series_events_json(vcd: &Vcd, signal: usize, tick_secs: f64, start_tick: u64)
 /// Indices to keep when capping `n` entries to `cap` (first and last always
 /// kept, remainder thinned uniformly).
 fn downsample_indices(n: usize, cap: usize) -> Vec<usize> {
-    if n <= cap || cap < 2 || n == 0 {
+    if n == 0 {
+        return Vec::new();
+    }
+    if cap < 2 {
+        // degenerate cap: keep only the first entry so the cap holds
+        return vec![0];
+    }
+    if n <= cap {
         return (0..n).collect();
     }
     let last = n - 1;
