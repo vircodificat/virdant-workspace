@@ -175,7 +175,12 @@ pub fn parse_time(s: &str) -> Result<f64, ()> {
         return Err(());
     }
     let num: f64 = s[..num_end].parse().map_err(|_| ())?;
-    let unit = crate::vcd::TimeUnit::parse(&s[num_end..]).ok_or(())?;
+    // A bare number with no unit suffix defaults to seconds.
+    let unit = if num_end == s.len() {
+        crate::vcd::TimeUnit::S
+    } else {
+        crate::vcd::TimeUnit::parse(&s[num_end..]).ok_or(())?
+    };
     Ok(num * unit.factor_secs())
 }
 

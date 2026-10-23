@@ -62,19 +62,6 @@ pub fn render(vcd: &Vcd, opts: &Opts, theme: &Theme) -> String {
     // ---- grid (behind everything else in the wave area) ------------------
     draw_grid(&mut svg, &ctx);
 
-    // ---- heat strip (feature hook, above grid, below rows) ---------------
-    crate::heat::draw(
-        &mut svg,
-        &crate::heat::Ctx {
-            layout: &layout,
-            theme,
-            opts,
-            n_rows: rows.len(),
-        },
-        vcd,
-        &rows,
-    );
-
     // ---- top axis ---------------------------------------------------------
     draw_axis(&mut svg, &ctx, layout.title_h as f64 + 4.0);
 
@@ -148,6 +135,19 @@ pub fn render(vcd: &Vcd, opts: &Opts, theme: &Theme) -> String {
         vcd.header.timescale.1.symbol()
     );
     svg.text(18.0, layout.title_h as f64 * 0.74, &sub, 11.5, theme.text_muted, "start");
+
+    // ---- heat strip (drawn after the name panel so its caption shows) -----
+    crate::heat::draw(
+        &mut svg,
+        &crate::heat::Ctx {
+            layout: &layout,
+            theme,
+            opts,
+            n_rows: rows.len(),
+        },
+        vcd,
+        &rows,
+    );
 
     // ---- cursors (feature hook, topmost) ---------------------------------
     crate::cursors::draw(
@@ -426,13 +426,13 @@ fn draw_wave(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
                 } else {
                     if f != level {
                         flush(svg, run_start, x0, level);
-                        edge(svg, x0, level, f, hi, lo, color);
+                        edge(svg, x0, level, f, hi, lo, color, theme);
                         level = f;
                         run_start = x0;
                     }
                     if l != level {
                         flush(svg, run_start, x1, level);
-                        edge(svg, x1, level, l, hi, lo, color);
+                        edge(svg, x1, level, l, hi, lo, color, theme);
                         level = l;
                         run_start = x1;
                     }
@@ -461,7 +461,7 @@ fn draw_wave(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
     }
 }
 
-fn edge(svg: &mut Svg, x: f64, from: u8, to: u8, hi: f64, lo: f64, color: &str) {
+fn edge(svg: &mut Svg, x: f64, from: u8, to: u8, hi: f64, lo: f64, color: &str, theme: &Theme) {
     let sf = bus::style_for(from);
     let st = bus::style_for(to);
     let ly = cy_of(hi, lo, sf.level_frac);
@@ -469,11 +469,11 @@ fn edge(svg: &mut Svg, x: f64, from: u8, to: u8, hi: f64, lo: f64, color: &str) 
     if (ly - ny).abs() < 0.05 {
         return;
     }
-    let stroke = if matches!(to, b'0' | b'1') { color } else if to == b'z' { "z" } else { "x" };
-    let stroke = match stroke {
-        "z" => crate::theme::by_name("dark").z_color,
-        "x" => crate::theme::by_name("dark").x_color,
-        c => c,
+    // endpoints in the x/z tone keep undriven edges readable
+    let stroke = match to {
+        b'z' => theme.z_color,
+        b'x' => theme.x_color,
+        _ => color,
     };
     svg.leaf(
         "line",
@@ -544,8 +544,8 @@ fn draw_bus(svg: &mut Svg, ctx: &Ctx, series: &Series, y: f64, color: &str) {
         let style = bus::style_for(kind);
         let fill = style.fill_override.unwrap_or(theme.bus_fill);
         // x/z bands collapse toward their level line
-        let band_top = top + (h - band_h(kind, h, style.level_frac)) / 2.0;
         let bh = band_h(kind, h, style.level_frac);
+        let band_top = top + band_top_offset(kind, h, style.level_frac);
         svg.leaf(
             "rect",
             &[
@@ -705,8 +705,23 @@ fn draw_name(svg: &mut Svg, ctx: &Ctx, row: &Row, y: f64) {
 
 /// Band height for a kind: normal bands are full height; x/z collapse to a
 /// thin band around their level line.
-fn band_h(kind: u8, h: f64, level_frac: f64) -> f64 {
-    let _ = kind;
-    let _ = level_frac;
-    h
+fn band_h(kind: u8, h: f64, _level_frac: f64) -> f64 {
+    // x/z bands collapse toward their level line; value bands stay full height
+    if matches!(kind, b'x' | b'z') {
+        h * 0.35
+    } else {
+        h
+    }
+}
+
+/// Vertical offset of a band's top edge from `top`, keeping x/z bands
+/// centered on their level line and full bands anchored at the top.
+fn band_top_offset(kind: u8, h: f64, level_frac: f64) -> f64 {
+    if matches!(kind, b'x' | b'z') {
+        (level_frac * h - band_h(kind, h, level_frac) / 2.0)
+            .max(0.0)
+            .min(h - band_h(kind, h, level_frac))
+    } else {
+        0.0
+    }
 }
