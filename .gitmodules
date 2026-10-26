@@ -4,3 +4,9 @@
 [submodule "virdant-riscv"]
 	path = virdant-riscv
 	url = git@github.com:vircodificat/virdant-riscv.git
+[submodule "virdant.nvim"]
+	path = virdant.nvim
+	url = git@github.com:virdant-lang/virdant.nvim.git
+[submodule "tree-sitter-virdant"]
+	path = tree-sitter-virdant
+	url = git@github.com:virdant-lang/tree-sitter-virdant
