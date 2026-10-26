@@ -1,5 +1,4 @@
 # Tristate and Bidirectional Ports
-
 Date: 2026-10-17
 Status: In Planning
 

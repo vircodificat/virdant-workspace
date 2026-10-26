@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Connect to the iCEstick UART echo server with minicom.
+# Connect to the iCEstick UART echo server with picocom.
 #
 # The echo server runs at 115200 baud, 8 data bits, no parity, one
 # stop bit, with no flow control.  Type characters and the board
-# echoes them straight back.  Press Ctrl-A then Z for minicom's
-# command menu; Ctrl-A then X to quit.
+# echoes them straight back.  Press Ctrl-A then Ctrl-H for picocom's
+# help; Ctrl-A then Ctrl-X to quit.
 #
 # Usage:
-#   ./echo-minicom.sh            # auto-detect the FTDI as /dev/ttyUSB*
-#   ./echo-minicom.sh /dev/ttyX  # use a specific device
+#   ./connect                     # auto-detect the FTDI as /dev/ttyUSB*
+#   ./connect /dev/ttyX           # use a specific device
 set -euo pipefail
 
 BAUD=115200
@@ -36,17 +36,7 @@ fi
 # the `dialout` group normally can; if not, retry with sudo.
 if [[ ! -r "$DEVICE" || ! -w "$DEVICE" ]]; then
     echo "No read/write access to $DEVICE; retrying with sudo." >&2
-    exec sudo minicom \
-        --baudrate="$BAUD" \
-        --device="$DEVICE" \
-        --noinit \
-        --wrap \
-        --color=on
+    exec sudo picocom -b "$BAUD" "$DEVICE"
 fi
 
-exec minicom \
-    --baudrate="$BAUD" \
-    --device="$DEVICE" \
-    --noinit \
-    --wrap \
-    --color=on
+exec picocom -b "$BAUD" "$DEVICE"

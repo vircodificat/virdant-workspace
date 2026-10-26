@@ -1,5 +1,4 @@
 # Domains
-
 Date: 2026-10-16
 Status: In Planning
 

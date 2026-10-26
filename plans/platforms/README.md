@@ -1,5 +1,4 @@
 # Platforms
-
 Date: 2026-10-04
 Status: Completed
 

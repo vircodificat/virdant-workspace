@@ -1,5 +1,4 @@
 # Clock Domain Analysis
-
 Date: 2026-10-15
 Status: In Planning
 
