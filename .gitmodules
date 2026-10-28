@@ -10,3 +10,6 @@
 [submodule "tree-sitter-virdant"]
 	path = tree-sitter-virdant
 	url = git@github.com:virdant-lang/tree-sitter-virdant
+[submodule "virdant-virt"]
+	path = virdant-virt
+	url = git@github.com:vircodificat/virdant-virt.git
