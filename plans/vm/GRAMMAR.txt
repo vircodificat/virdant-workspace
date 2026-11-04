@@ -1,0 +1,411 @@
+Package := DocBang? PackageStmt*
+
+PackageStmt :=
+      PackageImport
+    | Item
+
+PackageImport := "import" Ident
+
+DocString := ("DocComment")+
+
+DocBang := ("DocBang")+
+
+Annotations := Annotation*
+
+Annotation :=
+      "@" Ident "(" ArgList? ")"
+    | "@" Ident
+
+Item :=
+      ModDef
+    | StructDef
+    | UnionDef
+    | EnumDef
+    | BuiltinDef
+    | SocketDef
+    | PlatformDef
+
+ModDef := DocString? Annotations "pub"? "ext"? "mod" Ident ForClause? Generics? "{" ModDefStmt* "}"
+
+ForClause := "for" Ofness
+
+StructDef := DocString? Annotations "pub"? "struct" "type" Ident Generics? "{" StructDefStmt* "}"
+
+PlatformDef := DocString? Annotations "pub"? "platform" Ident "{" PlatformStmt* "}"
+
+PlatformStmt := ModDefStmtComponent
+
+StructDefStmt := DocString? Annotations Ident ":" Type
+
+UnionDef := DocString? Annotations "pub"? "union" "type" Ident Generics? "{" UnionDefStmt* "}"
+
+UnionDefStmt := DocString? Annotations Ident ParamList?
+
+ParamList := "(" Params? ")"
+
+Params :=
+      Param
+    | Params "," Param
+
+Param := DocString? Annotations Ident ":" Type
+
+GenericsParams := "[" GenericsArgList "]"
+
+GenericsArgList := (GenericsArg ",")* GenericsArg
+
+GenericsArg :=
+      Nat
+    | Type
+
+Generics := "[" KindParamList "]"
+
+KindParamList := (KindParam ",")* KindParam
+
+KindParam := Ident ":" Kind
+
+EnumDef := DocString? Annotations "pub"? "enum" "type" Ident Generics? "{" EnumDefStmt* "}"
+
+EnumDefStmt :=
+      DocString? Annotations Ident "=" Expr
+    | DocString? Annotations Ident ParamList?
+    | DocString? Annotations Ident ParamList "=" Expr
+
+BuiltinDef := DocString? Annotations "pub"? "builtin" "type" Ident Generics? "{" "}"
+
+SocketDef := DocString? Annotations "pub"? "socket" Ident Generics? "{" SocketDefStmt* "}"
+
+SocketDefStmt :=
+      DocString? Annotations "cosi" Ident ":" Type DependsonList?
+    | DocString? Annotations "soci" Ident ":" Type DependsonList?
+
+DependsonList := "dependson" DependsonPathList
+
+DependsonPathList := (Path ",")* Path
+
+ModDefStmtCore :=
+      ModDefStmtComponent
+    | ModDefStmtDriver
+    | ModDefStmtInstance
+    | ModDefStmtSocket
+    | ModDefStmtUnused
+    | ModDefStmtInitial
+
+ModDefStmt :=
+      ModDefStmtCore
+    | If
+    | Match
+    | Let
+
+Let :=
+      "let" LetBindingList ArmBlock
+    | "let" LetBindingList "=>" Expr
+    | "let" LetBindingList If
+    | "let" LetBindingList Match
+
+LetBindingList :=
+      LetBinding
+    | LetBindingList "," LetBinding
+
+LetBinding :=
+      Ident ":" Type "=" Expr
+    | Ident "=" Expr
+
+ModDefStmtComponent :=
+      DocString? Annotations "incoming" Ident ":" Type DependsonList? OnClause? ItBlock?
+    | DocString? Annotations "outgoing" Ident ":" Type DependsonList? DefaultClause? OnClause? ItBlock?
+    | DocString? Annotations "bus" Ident ":" Type DependsonList? ItBlock?
+    | DocString? Annotations "net" Ident ":" Type DependsonList? ItBlock?
+    | DocString? Annotations "outgoing" "wire" Ident ":" Type DependsonList? DefaultClause? OnClause? ItBlock?
+    | DocString? Annotations "outgoing" "reg" Ident ":" Type DependsonList? DefaultClause? OnClause? ItBlock?
+    | DocString? Annotations "wire" Ident ":" Type DependsonList? OnClause? ItBlock?
+    | DocString? Annotations "reg" Ident ":" Type DependsonList? OnClause? ItBlock?
+
+OnClause := "on" Expr
+
+DefaultClause := "default" Expr
+
+ModDefStmtDriver :=
+      Path ":=" Expr
+    | Path "<=" Expr
+    | Path "#=" Expr
+    | Path "#-" Expr
+    | Path "#=#" Path
+    | Path ":=:" Path
+
+ModDefStmtInstance := DocString? Annotations "mod" Ident "of" Ofness GenericsParams? ItBlock?
+
+ItBlock := ModDefStmtBlock
+
+ModDefStmtSocket :=
+      DocString? Annotations "client" "socket" Ident "of" Ofness GenericsParams? ItBlock?
+    | DocString? Annotations "server" "socket" Ident "of" Ofness GenericsParams? ItBlock?
+
+If := "if" "{" IfArm* "}"
+
+IfArm :=
+      "when" Expr "=>" Expr
+    | "when" Expr ArmBlock
+    | "when" Expr If
+    | "when" Expr Match
+    | "when" Expr Let
+    | "else" "=>" Expr
+    | "else" ArmBlock
+    | "else" If
+    | "else" Match
+    | "else" Let
+
+Match := "match" Expr "{" MatchArm* "}"
+
+MatchArm :=
+      "with" Pat "=>" Expr
+    | "with" Pat ArmBlock
+    | "with" Pat If
+    | "with" Pat Match
+    | "with" Pat Let
+    | "else" "=>" Expr
+    | "else" ArmBlock
+    | "else" If
+    | "else" Match
+    | "else" Let
+
+ModDefStmtUnused := "unused" Path
+
+ModDefStmtInitial := "initial" Path "<=" Expr
+
+ModDefStmtBlock := "{" ModDefStmt* "}"
+
+Kind := Ident
+
+Type := Ofness GenericsParams?
+
+Expr :=
+      If
+    | Match
+    | Let
+    | ExprStruct
+    | ExprBinOpLogical
+
+ArmBlock :=
+      "{" ModDefStmt* "}"
+    | "{" ArmBlockExpr "}"
+
+ArmBlockExpr :=
+      ArmBlockExpr BinOpLogical ArmBlockCompare
+    | ArmBlockCompare
+
+ArmBlockCompare :=
+      ArmBlockCompare BinOpCompareNoLe ExprBinOpAdditive
+    | ExprBinOpAdditive
+
+BinOpCompareNoLe :=
+      "<"
+    | ">"
+    | ">="
+    | "=="
+    | "!="
+
+Pat :=
+      "#" Ident
+    | "@" Ident
+    | "@" Ident "(" PatList ")"
+    | WordLit
+    | BitLit
+    | Ident
+    | "dontcare"
+
+PatList :=
+      (Pat ",")+ Pat ","?
+    | Pat ","?
+    |
+
+ExprStruct := "$" "{" AssignList "}"
+
+AssignList :=
+      (Assign ",")* Assign ","?
+    | Expr ","?
+    |
+
+Assign := Ident "=" Expr
+
+BinOpLogical :=
+      "&&"
+    | "||"
+    | "^^"
+
+ExprBinOpLogical :=
+      ExprBinOpLogical BinOpLogical ExprBinOpCompare
+    | ExprBinOpCompare
+
+BinOpCompare :=
+      "<"
+    | "<="
+    | ">"
+    | ">="
+    | "=="
+    | "!="
+
+ExprBinOpCompare :=
+      ExprBinOpCompare BinOpCompare ExprBinOpAdditive
+    | ExprBinOpAdditive
+
+BinOpAdditive :=
+      "+"
+    | "-"
+    | "&"
+    | "|"
+    | "^"
+
+ExprBinOpAdditive :=
+      ExprBinOpAdditive BinOpAdditive ExprUnOp
+    | ExprUnOp
+
+UnOp :=
+      "-"
+    | "~"
+    | "!"
+
+ExprUnOp :=
+      UnOp ExprUnOp
+    | "tap" Path
+    | ExprAscription
+
+ExprAscription :=
+      ExprPrimary ":" Type
+    | ExprPrimary
+
+ExprPrimary :=
+      Ofness "(" ArgList? ")"
+    | ExprPrimary "->" Ident
+    | ExprPrimary "[" "dyn" Expr "]"
+    | ExprPrimary "[" Index "]"
+    | ExprPrimary "[" Index ".." Index "]"
+    | "@" Ident "(" ArgList? ")"
+    | ExprAtom
+
+ExprAtom :=
+      Path
+    | WordLit
+    | BitLit
+    | "Str"
+    | "#" Ident
+    | "@" Ident
+    | "?"
+    | "dontcare"
+    | "(" Expr ")"
+
+ArgList :=
+      (Expr ",")+ Expr ","?
+    | Expr ","?
+
+Ofness :=
+      Ident
+    | Ident "::" Ident
+
+Path :=
+      Ident ("." Ident)*
+    | "it" ("." Ident)*
+
+Index := "Nat"
+
+Width := "Nat"
+
+WordLit :=
+      "Nat"
+    | "Word"
+
+BitLit :=
+      "true"
+    | "false"
+
+Ident := "Ident"
+
+Nat := "Nat"
+
+Str := "Str"
+
+Tokens:
+  "!"
+  "!="
+  "#"
+  "#-"
+  "#="
+  "#=#"
+  "$"
+  "&"
+  "&&"
+  "("
+  ")"
+  "+"
+  ","
+  "-"
+  "->"
+  "."
+  ".."
+  ":"
+  "::"
+  ":="
+  ":=:"
+  "<"
+  "<="
+  "="
+  "=="
+  "=>"
+  ">"
+  ">="
+  "?"
+  "@"
+  "DocBang"
+  "DocComment"
+  "Ident"
+  "Nat"
+  "Str"
+  "Word"
+  "["
+  "]"
+  "^"
+  "^^"
+  "builtin"
+  "bus"
+  "client"
+  "cosi"
+  "default"
+  "dependson"
+  "dontcare"
+  "dyn"
+  "else"
+  "enum"
+  "ext"
+  "false"
+  "for"
+  "if"
+  "import"
+  "incoming"
+  "initial"
+  "it"
+  "let"
+  "match"
+  "mod"
+  "net"
+  "of"
+  "on"
+  "outgoing"
+  "platform"
+  "pub"
+  "reg"
+  "server"
+  "soci"
+  "socket"
+  "struct"
+  "tap"
+  "true"
+  "type"
+  "union"
+  "unused"
+  "when"
+  "wire"
+  "with"
+  "{"
+  "|"
+  "||"
+  "}"
+  "~"

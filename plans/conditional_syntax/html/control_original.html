@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Control unit: instruction decode and pipeline control.</title>
+<style>
+    body {
+        background: #1a1b26;
+        color: #c0caf5;
+        margin: 0;
+        padding: 1.5em;
+    }
+    pre {
+        margin: 0;
+        font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.55;
+        white-space: pre;
+    }
+</style>
+</head>
+<body>
+<pre>
+<span style="color:#8A8A8A;font-style:italic">//! Control unit: instruction decode and pipeline control.</span>
+<span style="color:#8A8A8A;font-style:italic">//!</span>
+<span style="color:#8A8A8A;font-style:italic">//! This package defines the control-path enums (ALU source mux selects,</span>
+<span style="color:#8A8A8A;font-style:italic">//! register-file writeback source mux selects) and the main Control module</span>
+<span style="color:#8A8A8A;font-style:italic">//! that decodes opcode, funct3, funct7, and funct12 into all micro-architectural</span>
+<span style="color:#8A8A8A;font-style:italic">//! control signals.</span>
+
+<span style="color:#5F9A5A">import</span> <span style="color:#B5C46A;font-style:italic">opcode</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; ALU A-operand source mux selector.</span>
+<span style="color:#5C9A82">pub</span> <span style="color:#52948A">enum</span> <span style="color:#52948A">type</span> <span style="color:#90682A;font-weight:bold">AluSourceA</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand A comes from register file port rs1.</span>
+    <span style="color:#F6AE2D">Rs1</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b001w3</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand A comes from the program counter.</span>
+    <span style="color:#F6AE2D">Pc</span>  <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b010</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand A comes from the CSR file read data.</span>
+    <span style="color:#F6AE2D">Csr</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b100</span>
+<span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; ALU B-operand source mux selector.</span>
+<span style="color:#5C9A82">pub</span> <span style="color:#52948A">enum</span> <span style="color:#52948A">type</span> <span style="color:#90682A;font-weight:bold">AluSourceB</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand B comes from register file port rs2.</span>
+    <span style="color:#F6AE2D">Rs2</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b001w3</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand B comes from the decoded immediate.</span>
+    <span style="color:#F6AE2D">Imm</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b010</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Operand B comes from register file port rs1 (used for CSR ops).</span>
+    <span style="color:#F6AE2D">Rs1</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b100</span>
+<span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; Register-file writeback data source mux selector.</span>
+<span style="color:#5C9A82">pub</span> <span style="color:#52948A">enum</span> <span style="color:#52948A">type</span> <span style="color:#90682A;font-weight:bold">RdSource</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from memory read data.</span>
+    <span style="color:#F6AE2D">Mem</span>       <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b000001w6</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from the decoded immediate.</span>
+    <span style="color:#F6AE2D">Imm</span>       <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b000010w6</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from PC + immediate (for AUIPC).</span>
+    <span style="color:#F6AE2D">PcPlusImm</span> <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b000100w6</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from PC + 4 (for JAL/JALR).</span>
+    <span style="color:#F6AE2D">PcPlus4</span>   <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b001000w6</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from the ALU result.</span>
+    <span style="color:#F6AE2D">AluZ</span>      <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b010000w6</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Writeback comes from CSR read data.</span>
+    <span style="color:#F6AE2D">Csr</span>       <span style="color:#9CB59A">=</span> <span style="color:#F4A261">0b100000w6</span>
+<span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; Main control module.</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; Decodes the instruction fields and generates all control signals for</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; the datapath: ALU mux selects, register-file write enable, branch</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; control, memory strobes, CSR access, and pipeline stall logic.</span>
+<span style="color:#5C9A82">pub</span> <span style="color:#5F9A5A">mod</span> <span style="color:#90682A;font-weight:bold">Control</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Primary opcode from the instruction.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">:</span> <span style="color:#B5C46A;font-style:italic">opcode</span><span style="color:#738A6E">::</span><span style="color:#F2CC60">Opcode</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-3 field from the instruction.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">3</span><span style="color:#738A6E">]</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-7 field from the instruction.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct7</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">7</span><span style="color:#738A6E">]</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-12 field from the instruction (used for SYSTEM/CSR).</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct12</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">12</span><span style="color:#738A6E">]</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; ALU zero/flag output (used for branch evaluation).</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">alu_z</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">32</span><span style="color:#738A6E">]</span>
+
+    <span style="color:#7A7A7A;font-style:italic">// Decode each opcode into control signals via individual match expressions.</span>
+    <span style="color:#7A7A7A;font-style:italic">// Each signal is driven by a match on `opcode`, with nested match/when</span>
+    <span style="color:#7A7A7A;font-style:italic">// for signals that depend on funct3, funct7, or system_op.</span>
+    <span style="color:#5C9A82">wire</span> <span style="color:#C0D4C4">write_to_mem</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#STORE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Memory write enable (high for STORE, low otherwise).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">mem_write</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">write_to_mem</span> <span style="color:#9CB59A">&amp;&amp;</span> <span style="color:#C0D4C4">stage</span> <span style="color:#9CB59A">!=</span> <span style="color:#F6AE2D">#Fetching</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Register-file write enable.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">rf_write</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#BRANCH</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#FENCE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#STORE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; CSR read/write enable.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">csr_rw</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Branch taken (for JAL, JALR, and conditional branches).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">take_branch</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#BRANCH</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">alu_z</span><span style="color:#738A6E">[</span><span style="color:#F4A261">0</span><span style="color:#738A6E">]</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JALR</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JAL</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">true</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Selector for ALU A-operand mux.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">alu_source_a</span> <span style="color:#738A6E">:</span> <span style="color:#F2CC60">AluSourceA</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#AUIPC</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Pc</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs1</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Csr</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs1</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Selector for ALU B-operand mux.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">alu_source_b</span> <span style="color:#738A6E">:</span> <span style="color:#F2CC60">AluSourceB</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#BRANCH</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JAL</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JALR</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP_IMM</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LUI</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#AUIPC</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LOAD</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#STORE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#FENCE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b001</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b010</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b011</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs1</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b101</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b110</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b111</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Rs2</span>
+            <span style="color:#738A6E">}</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Selector for register-file writeback mux.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">rd_source</span> <span style="color:#738A6E">:</span> <span style="color:#F2CC60">RdSource</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#BRANCH</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JALR</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#PcPlus4</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JAL</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#PcPlus4</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP_IMM</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LUI</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Imm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#AUIPC</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#PcPlusImm</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LOAD</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Mem</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#STORE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#FENCE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#AluZ</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Csr</span>
+            <span style="color:#738A6E">}</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; ALU operation code (decoded from funct3/funct7).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">alu_op</span> <span style="color:#738A6E">:</span> <span style="color:#B5C46A;font-style:italic">opcode</span><span style="color:#738A6E">::</span><span style="color:#F2CC60">AluOpcode</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#BRANCH</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Eq</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">1</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Neq</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">4</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Lt</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">5</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Gte</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">6</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Ltu</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">7</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Gteu</span>
+                <span style="color:#7A9F58">else</span>   <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JALR</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Zero</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#JAL</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Zero</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP_IMM</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">alu_op_from_funct37</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#OP</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">alu_op_from_funct37</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LUI</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Zero</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#AUIPC</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#LOAD</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#STORE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#FENCE</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b001</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#PassA</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b010</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Or</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b011</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Clear</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b101</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#PassA</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b110</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Or</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b111</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Clear</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#738A6E">}</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; CSR address (for CSR read/write instructions).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">csr</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">12</span><span style="color:#738A6E">]</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">system_op</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span> <span style="color:#738A6E">{</span>
+                    <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#Mret</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0x341w12</span>
+                    <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#Sret</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0w12</span>
+                    <span style="color:#7A9F58">else</span>       <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0w12</span>
+                <span style="color:#738A6E">}</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">funct12</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#E9785A;font-style:italic">dontcare</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Decoder that maps funct3/funct7 to an ALU opcode for OP and OP-IMM.</span>
+    <span style="color:#5F9A5A">mod</span> <span style="color:#C0D4C4">alu_op_from_funct37</span> <span style="color:#5F9A5A">of</span> <span style="color:#F2CC60">AluOpFromFunct37</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">funct3</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">funct3</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">funct7</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#OP</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">funct7</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#OP_IMM</span> <span style="color:#9CB59A">&amp;&amp;</span> <span style="color:#738A6E">(</span><span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">1</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">5</span><span style="color:#738A6E">)</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">funct7</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0w7</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Memory strobe: asserted when fetching, loading, or storing.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">mem_strobe</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">is_fetching</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#LOAD</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#STORE</span>
+    <span style="color:#738A6E">}</span>
+
+    <span style="color:#5F9A5A">mod</span> <span style="color:#C0D4C4">system_op</span> <span style="color:#5F9A5A">of</span> <span style="color:#F2CC60">SystemOpFromFunct12</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">funct12</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">funct12</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Byte-select mask for memory accesses.</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; During fetch (Fetching stage), all 4 bytes are selected (0b1111).</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; During load/store, `funct3[1:0]` selects the width:</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt;   00 → byte, 01 → halfword, 10 → word.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">mem_sel</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">4</span><span style="color:#738A6E">]</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">stage</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#Fetching</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b1111w4</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">funct3</span><span style="color:#738A6E">[</span><span style="color:#F4A261">2</span><span style="color:#9CB59A">..</span><span style="color:#F4A261">0</span><span style="color:#738A6E">]</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A7A7A;font-style:italic">// SB: select byte lane based on address bits [1:0]</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0b00</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                    <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">alu_z</span><span style="color:#738A6E">[</span><span style="color:#F4A261">1</span><span style="color:#738A6E">]</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                        <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">alu_z</span><span style="color:#738A6E">[</span><span style="color:#F4A261">0</span><span style="color:#738A6E">]</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b1000</span>
+                        <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b0100</span>
+                    <span style="color:#738A6E">}</span>
+                    <span style="color:#7A9F58">else</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                        <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">alu_z</span><span style="color:#738A6E">[</span><span style="color:#F4A261">0</span><span style="color:#738A6E">]</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b0010</span>
+                        <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b0001</span>
+                    <span style="color:#738A6E">}</span>
+                <span style="color:#738A6E">}</span>
+                <span style="color:#7A7A7A;font-style:italic">// SH: select halfword lane based on address bit [1]</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0b01</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                    <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">alu_z</span><span style="color:#738A6E">[</span><span style="color:#F4A261">1</span><span style="color:#738A6E">]</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b1100</span>
+                    <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b0011</span>
+                <span style="color:#738A6E">}</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0b10</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F4A261">0b1111</span>  <span style="color:#7A7A7A;font-style:italic">// SW : all 4 bytes</span>
+                <span style="color:#7A9F58">else</span>      <span style="color:#9CB59A">=&gt;</span> <span style="color:#E9785A;font-style:italic">dontcare</span>
+            <span style="color:#738A6E">}</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Unsigned load indicator: high for LBU, LHU; low for LB, LH, LW.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">unsigned_load</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">funct3</span><span style="color:#738A6E">[</span><span style="color:#F4A261">2</span><span style="color:#738A6E">]</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Whether the current cycle is an instruction fetch.</span>
+    <span style="color:#5C9A82">wire</span> <span style="color:#C0D4C4">is_fetching</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">stage</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#Fetching</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Current CPU pipeline stage.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">stage</span> <span style="color:#738A6E">:</span> <span style="color:#B5C46A;font-style:italic">opcode</span><span style="color:#738A6E">::</span><span style="color:#F2CC60">CpuStage</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; MRET instruction detected (used to gate CSR-based PC update).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">is_mret</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#9CB59A">&amp;&amp;</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">&amp;&amp;</span> <span style="color:#C0D4C4">system_op</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#Mret</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Break instruction detected (ECALL or EBREAK).</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Only when funct3 == 0b000: CSR instructions (funct3 != 0) share the</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; SYSTEM opcode, and their funct12 must not be decoded as a system op</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; (dontcare would collide with #Ecall = 0x000 and halt the CPU).</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">is_break</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#SYSTEM</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#9CB59A">==</span> <span style="color:#F4A261">0b000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">system_op</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#Ecall</span> <span style="color:#9CB59A">||</span> <span style="color:#C0D4C4">system_op</span><span style="color:#738A6E">.</span><span style="color:#A8BEA8">op</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#Ebreak</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Memory acknowledge signal from the Wishbone bus.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">mem_ack</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Pipeline stall signal.</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Stalls during Fetch if memory is not ready, or during Execute</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; if a LOAD is waiting on memory.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">stall</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Bit</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">stage</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#Fetching</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#9CB59A">!</span><span style="color:#C0D4C4">mem_ack</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F6AE2D">#Execute</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#C0D4C4">opcode</span> <span style="color:#9CB59A">==</span> <span style="color:#F6AE2D">#LOAD</span> <span style="color:#9CB59A">&amp;&amp;</span> <span style="color:#9CB59A">!</span><span style="color:#C0D4C4">mem_ack</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#EE964B;font-weight:bold">false</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; ALU opcode decoder from funct3 and funct7.</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; Combines funct3[2:0] and funct7[5] to produce the correct</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; `AluOpcode` for OP and OP-IMM instructions.  For OP-IMM,</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; funct7 is forced to 0, disabling subtraction and right-arithmetic</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; shifts.</span>
+<span style="color:#5F9A5A">mod</span> <span style="color:#90682A;font-weight:bold">AluOpFromFunct37</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-3 field (bits [14:12] of the instruction).</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">3</span><span style="color:#738A6E">]</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-7 field (bits [31:25] of the instruction).</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; For OP-IMM this is wired to 0.</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct7</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">7</span><span style="color:#738A6E">]</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Decoded ALU opcode.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">op</span> <span style="color:#738A6E">:</span> <span style="color:#B5C46A;font-style:italic">opcode</span><span style="color:#738A6E">::</span><span style="color:#F2CC60">AluOpcode</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">funct3</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct7</span><span style="color:#738A6E">[</span><span style="color:#F4A261">5</span><span style="color:#738A6E">]</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Sub</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Add</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">1</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Sll</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">2</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Lt</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">3</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Ltu</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">4</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Xor</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">5</span> <span style="color:#7A9F58">when</span> <span style="color:#738A6E">{</span>
+                <span style="color:#7A9F58">case</span> <span style="color:#C0D4C4">funct7</span><span style="color:#738A6E">[</span><span style="color:#F4A261">5</span><span style="color:#738A6E">]</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Sra</span>
+                <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Srl</span>
+            <span style="color:#738A6E">}</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">6</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Or</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">7</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#And</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#738A6E">}</span>
+
+<span style="color:#8A8A8A;font-style:italic">//&gt; System-opcode decoder from funct12.</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt;</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; Maps the 12-bit funct12 field of a SYSTEM instruction to</span>
+<span style="color:#8A8A8A;font-style:italic">//&gt; a `System` mnemonic (ECALL, EBREAK, WFI, MRET, SRET).</span>
+<span style="color:#5F9A5A">mod</span> <span style="color:#90682A;font-weight:bold">SystemOpFromFunct12</span> <span style="color:#738A6E">{</span>
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Function-12 field (bits [31:20] of a SYSTEM instruction).</span>
+    <span style="color:#5C9A82">incoming</span> <span style="color:#C0D4C4">funct12</span> <span style="color:#738A6E">:</span> <span style="color:#E3B448;font-style:italic">Word</span><span style="color:#738A6E">[</span><span style="color:#F4A261">12</span><span style="color:#738A6E">]</span>
+
+<span style="color:#8A8A8A;font-style:italic">    //&gt; Decoded system operation.</span>
+    <span style="color:#5C9A82">outgoing</span> <span style="color:#C0D4C4">op</span> <span style="color:#738A6E">:</span> <span style="color:#B5C46A;font-style:italic">opcode</span><span style="color:#738A6E">::</span><span style="color:#F2CC60">System</span> <span style="color:#738A6E">{</span>
+        <span style="color:#C2E3AC;font-style:italic">it</span> <span style="color:#9CB59A">:=</span> <span style="color:#7A9F58">match</span> <span style="color:#C0D4C4">funct12</span> <span style="color:#738A6E">{</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0x000</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Ecall</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0x001</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Ebreak</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0x105</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Wfi</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0x302</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Mret</span>
+            <span style="color:#7A9F58">case</span> <span style="color:#F4A261">0x102</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#F6AE2D">#Sret</span>
+            <span style="color:#7A9F58">else</span> <span style="color:#9CB59A">=&gt;</span> <span style="color:#E9785A;font-style:italic">dontcare</span>
+        <span style="color:#738A6E">}</span>
+    <span style="color:#738A6E">}</span>
+<span style="color:#738A6E">}</span>
+</pre>
+</body>
+</html>

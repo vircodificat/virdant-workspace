@@ -12,6 +12,7 @@ If two files have two version suffixes: (eg, v2, v3, ...), always consider the h
 ### Planning
 When I ask you to plan a feature proposal in `plans/`,
 interview me, asking ONE question at a time, to understand what the requirements are.
+When you see a TODO, always seek to help think through the possibilities to resolve them.
 Read `CONCEPT.md` but NEVER touch it.
 Also read any other files in the plan directory.
 Your goal, unless otherwise specified, is to create `PLAN.md` in that directory (or `PLANv2.md` `PLANv3.md` etc)
