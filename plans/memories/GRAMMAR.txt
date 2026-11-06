@@ -1,0 +1,129 @@
+// Example grammar DELTA for the `memory` sublanguage (plans/memories).
+//
+// Only NEW and EXTENDED productions, relative to virdant/GRAMMAR.txt
+// as of today. Style #1: memories reuse the module statement and
+// expression grammar wholesale, so nearly everything here composes
+// rules that already exist. All other rules — package structure,
+// ModDef, components, If/Match/Let, the full expression grammar — are
+// unchanged. New tokens: "comb", "memory", "negedge", "new", "old",
+// "posedge", "storage".
+
+//> NEW: a memory is a top-level item shaped like a module —
+//> generics, doc string, annotations — with a memory body.
+MemoryDef := DocString? Annotations "pub"? "memory" Ident Generics? "{" MemoryStmt* "}"
+
+//> NEW: the memory body. Components (ports), one or more storages,
+//> process blocks, and drivers. If/Match/Let nest as in modules.
+//> No bus/net/socket — memories have no sockets.
+MemoryStmt :=
+      MemoryStmtComponent
+    | MemoryStmtStorage
+    | MemoryStmtProcess
+    | ModDefStmtDriver
+    | If
+    | Match
+    | Let
+    | ModDefStmtUnused
+
+//> NEW: ports and inner regs. Same shape as ModDefStmtComponent,
+//> minus bus/net/socket. The OnClause is the per-port clock
+//> (multi-clock memories declare several `incoming clk` ports).
+MemoryStmtComponent :=
+      DocString? Annotations "incoming" Ident ":" Type DependsonList? OnClause?
+    | DocString? Annotations "outgoing" Ident ":" Type DependsonList? DefaultClause? OnClause?
+    | DocString? Annotations "outgoing" "wire" Ident ":" Type DependsonList? DefaultClause? OnClause?
+    | DocString? Annotations "outgoing" "reg" Ident ":" Type DependsonList? DefaultClause? OnClause?
+    | DocString? Annotations "wire" Ident ":" Type DependsonList? OnClause?
+    | DocString? Annotations "reg" Ident ":" Type DependsonList? OnClause?
+
+//> NEW: the storage array. Depth is an Expr (a Nat or a const-generic
+//> name). The initializer is optional and arm-shaped, like Match.
+MemoryStmtStorage := DocString? Annotations "storage" Ident "[" Expr "]" ":" Type StorageInit?
+
+//> NEW: initializer arms. Listed entries initialize their storage
+//> slot; `else` covers the rest (the common all-default case).
+StorageInit := "=" "{" StorageInitArm* "}"
+
+StorageInitArm :=
+      Expr "=>" Expr
+    | "else" "=>" Expr
+
+//> NEW: process blocks. A clocked process is `on` an EdgeClause? Expr;
+//> polarity defaults to posedge. A comb process has no clock. A
+//> process body is a module statement block.
+MemoryStmtProcess :=
+      "on" EdgeClause? Expr ModDefStmtBlock
+    | "comb" ModDefStmtBlock
+
+//> NEW
+EdgeClause :=
+      "negedge"
+    | "posedge"
+
+//> EXTENDED: driver targets may be storage accesses, and any
+//> blocking/nonblocking driver may take a trailing `when` guard
+//> (e.g. `data[waddr] <= wdata when we`).
+//
+//   before:
+//     ModDefStmtDriver :=
+//           Path ":=" Expr
+//         | Path "<=" Expr
+//         | Path "#=" Expr
+//         | Path "#-" Expr
+//         | Path "#=#" Path
+//         | Path ":=:" Path
+ModDefStmtDriver :=
+      DriverTarget DriverOp Expr WhenGuard?
+    | Path "#=" Expr
+    | Path "#-" Expr
+    | Path "#=#" Path
+    | Path ":=:" Path
+
+//> NEW (factored out of the existing ":=" / "<=" alternatives)
+DriverOp :=
+      ":="
+    | "<="
+
+//> NEW
+DriverTarget :=
+      Path
+    | StorageAccess
+
+//> NEW
+WhenGuard := "when" Expr
+
+//> NEW: an access to a storage array. Storage indexing is always
+//> dynamic (an address Expr) — no `dyn` keyword, because a storage is
+//> not a value. `old`/`new` are read-site collision qualifiers: the
+//> declared read-during-write behavior of this read (see PLAN.md
+//> decision 4). A static bit-slice may follow the index.
+StorageAccess :=
+      Ident StorageQual? StorageIndex? SliceSuffix?
+
+//> NEW
+StorageQual :=
+      "old"
+    | "new"
+
+//> NEW
+StorageIndex := "[" Expr "]"
+
+//> NEW
+SliceSuffix := "[" Index ".." Index "]"
+
+//> EXTENDED: one alternative added to the existing ExprPrimary
+//> alternatives, so storage reads (including qualified reads like
+//> `data.old[raddr]`) parse as primary expressions:
+//
+//   ExprPrimary := ... existing alternatives ...
+//         | StorageAccess
+
+//> NEW tokens (the rest of the Tokens list is unchanged):
+//
+//   "comb"
+//   "memory"
+//   "negedge"
+//   "new"
+//   "old"
+//   "posedge"
+//   "storage"
