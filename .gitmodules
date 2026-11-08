@@ -13,3 +13,6 @@
 [submodule "virdant-virt"]
 	path = virdant-virt
 	url = git@github.com:vircodificat/virdant-virt.git
+[submodule "tutorial"]
+	path = tutorial
+	url = git@github.com:vircodificat/tutorial.git
